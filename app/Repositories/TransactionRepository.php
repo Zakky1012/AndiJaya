@@ -7,24 +7,22 @@ use App\Models\ClassKeberangkatan;
 use App\Models\PromoCode;
 use App\Models\Transaksi;
 use App\Models\TransaksiPassenger;
+use Illuminate\Support\Facades\Session;
 
 class TransactionRepository implements TransactionRepositoryInterface
 {
-
     public function getTransactionDataFromSession()
     {
-        return session()->get('transaksi');
+        return Session::get('transaksi');
     }
 
     public function saveTransactionDataToSession($data)
     {
-        $transaction = session()->get('transaksi', []);
+        $transaction = Session::get('transaksi', []);
 
-        foreach ($data as $key => $value) {
-            $transaction[$key] = $value;
-        }
+        $mergedData = array_merge($transaction, $data);
 
-        session()->put('transaksi', $transaction);
+        Session::put('transaksi', $mergedData);
     }
 
     public function saveTransaction($data)
@@ -36,23 +34,48 @@ class TransactionRepository implements TransactionRepositoryInterface
         $data['kode'] = $this->generateTransactionCode();
         $data['nomor_passenger'] = $this->countPassengers($data['passengers']);
 
-        // hitung subtotal dan grand total awal
-        $data['sub_total'] = $this->calculateSubTotal($data['keberangkatan_class_id'], $data['nomor_passenger']);
-        $data['grand_total'] = $data['sub_total'];
+        // 1. Hitung Subtotal
+        $hargaPerSeat = ClassKeberangkatan::findOrFail($data['keberangkatan_class_id'])->harga;
+        $subTotal = $hargaPerSeat * $data['nomor_passenger'];
+        $data['sub_total'] = $subTotal;
 
-        // terapkan promo jika ada
-        if(!empty($data['kode_promo_id'])) {
-        $data = $this->applyPromoCode($data);
+        $diskon = 0;
+        $promoId = null;
+
+        // 2. Terapkan diskon jika ada
+        if (isset($data['promo_code']) && !empty($data['promo_code'])) {
+            $promo = PromoCode::where('kode', $data['promo_code'])
+                ->where('valid', '>=', now())
+                ->where('is_used', false)
+                ->first();
+
+            if ($promo) {
+                if ($promo->tipe_diskon === 'percentage') {
+                    $diskon = $subTotal * ($promo->diskon / 100);
+                } else {
+                    $diskon = $promo->diskon;
+                }
+                $promoId = $promo->id;
+            }
+        }
+        $data['diskon'] = $diskon;
+        $data['kode_promo_id'] = $promoId;
+
+        // 3. Hitung PPN dari harga Subtotal awal
+        $ppn = $subTotal * 0.11;
+        $data['total_tax'] = $ppn;
+
+        // 4. Hitung Grand Total
+        $data['grand_total'] = ($subTotal - $diskon) + $ppn;
+        if ($data['grand_total'] < 0) {
+            $data['grand_total'] = 0;
         }
 
-        // Menambah PPN
-        $data['grand_total'] = $this->addPPN($data['grand_total']);
-
-        // simpan transaksi dan penumpang
+        // Simpan transaksi dan penumpang
         $transaksi = $this->createTransaction($data);
         $this->savePassengers($data['passengers'], $transaksi->id);
 
-        session()->forget('transaksi');
+        Session::forget('transaksi');
 
         return $transaksi;
     }
@@ -65,41 +88,6 @@ class TransactionRepository implements TransactionRepositoryInterface
     private function countPassengers($passengers)
     {
         return count($passengers);
-    }
-
-    private function calculateSubTotal($keberangkatanClassId, $numberOfPassengers)
-    {
-        $price  = ClassKeberangkatan::findOrFail($keberangkatanClassId)->harga;
-        return $price * $numberOfPassengers;
-    }
-
-    private function applyPromoCode($data) {
-        $promo = PromoCode::where('kode', $data['promo_code'])
-        ->where('valid', '>=', now())
-        ->where('is_used', false)
-        ->first();
-
-        if ($promo) {
-        if ($promo->tipe_diskon === 'percentage') {
-            $data['diskon']     = $data['grand_total'] * ($promo->diskon / 100);
-        } else {
-            $data['diskon']     = $promo->diskon;
-        }
-
-        $data['grand_total']    -= $data['diskon'];
-        $data['kode_promo_id']  = $promo->id ;
-
-        // tandai promo code sebagai sudah digunakan
-        $promo->update(['is_used' => true]);
-        }
-
-        return $data;
-    }
-
-    private function addPpn($grandTotal)
-    {
-        $ppn = $grandTotal * 0.11;
-        return $grandTotal + $ppn;
     }
 
     private function createTransaction($data)
@@ -124,6 +112,4 @@ class TransactionRepository implements TransactionRepositoryInterface
     {
         return Transaksi::where('kode', $kode)->where('nomor', $nomor)->first();
     }
-
 }
-

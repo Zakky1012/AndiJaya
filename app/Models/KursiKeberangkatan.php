@@ -19,6 +19,10 @@ class KursiKeberangkatan extends Model
         'is_available',
     ];
 
+    protected $casts = [
+        'is_available' => 'boolean',
+    ];
+
     public function keberangkatan() {
         return $this->belongsTo(Keberangkatan::class, 'keberangkatan_id');
     }

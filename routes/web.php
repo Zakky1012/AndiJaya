@@ -24,3 +24,4 @@ Route::post('/keberangkatan/booking/{nomorKeberangkatan}/payment', [BookingContr
 Route::get('/booking-success', [BookingController::class, 'success'])->name('booking.success');
 
 Route::get('check-booking', [BookingController::class, 'checkBooking'])->name('booking.check');
+Route::post('check-booking', [BookingController::class, 'show'])->name('booking.show');

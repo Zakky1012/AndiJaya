@@ -29,7 +29,7 @@ class TransaksiPolicy
      */
     public function create(User $user): bool
     {
-        return auth()->user()->hasRole('Admin');
+        return false;
     }
 
     /**
@@ -37,7 +37,7 @@ class TransaksiPolicy
      */
     public function update(User $user, Transaksi $transaksi): bool
     {
-        return auth()->user()->hasRole('Admin');
+        return false;
     }
 
     /**
